@@ -18,10 +18,10 @@ namespace SnakeGame
         private const int MAX_NAME_LENGTH = 5;
 
         // Speed constants (milliseconds) - higher = slower
-        private const int INITIAL_SPEED = 125;
+        private const int INITIAL_SPEED = 100;  // Faster initial speed
         private const int MIN_SPEED = 30;      // Fastest speed the game can reach
-        private const int SPEED_INCREASE_STEP = 5; // How much to reduce interval when speeding up
-        private const int SPEED_INCREASE_SCORE = 30; // Score required for speed increase
+        private const int SPEED_INCREASE_STEP = 3; // Smaller speed increments
+        private const int SPEED_INCREASE_SCORE = 20; // More frequent speed increases
 
         private DoubleBufferedPanel gamePanel;
         private Label scoreLabel;
@@ -148,7 +148,10 @@ namespace SnakeGame
             lastDirection = direction;
             gameOver = false;
             isPaused = false;
-            isWaitingToStart = true;
+            // Only set isWaitingToStart to true if not coming from game over
+            if (!gameOver) {
+                isWaitingToStart = true;
+            }
             directionQueue.Clear();
 
             int startX = (GRID_WIDTH / 2) * CELL_SIZE;
@@ -165,9 +168,6 @@ namespace SnakeGame
             gameTimer.Interval = INITIAL_SPEED;
             // Don't start the timer until space is pressed
         }
-
-
-
 
         private void GamePanel_Paint(object sender, PaintEventArgs e)
         {
@@ -213,15 +213,15 @@ namespace SnakeGame
                     {
                         // Position eyes based on direction
                         int offsetX = direction == 0 ? size - eyeSize * 2 : (direction == 2 ? eyeSize : size / 2 - eyeSize / 2);
-                        
+
                         // Position for first eye
                         int eye1X = snake[i].X + gap / 2 + offsetX;
                         int eye1Y = snake[i].Y + gap / 2 + (direction == 1 ? size - eyeSize * 2 : (direction == 3 ? eyeSize : size / 2 - eyeSize / 2));
-                        
+
                         // Position for second eye depends on direction
                         int eye2X = eye1X;
                         int eye2Y = eye1Y;
-                        
+
                         if (direction == 0 || direction == 2) // horizontal
                         {
                             eye1Y = snake[i].Y + gap / 2 + size / 3;
@@ -232,7 +232,7 @@ namespace SnakeGame
                             eye1X = snake[i].X + gap / 2 + size / 3;
                             eye2X = snake[i].X + gap / 2 + size * 2 / 3;
                         }
-                        
+
                         g.FillEllipse(eyeBrush, eye1X, eye1Y, eyeSize, eyeSize);
                         g.FillEllipse(eyeBrush, eye2X, eye2Y, eyeSize, eyeSize);
                     }
@@ -325,24 +325,17 @@ namespace SnakeGame
                 // Get current time for input buffer check
                 // Only accept input if we're outside the buffer window (20ms)
                 long currentTime = DateTimeOffset.Now.ToUnixTimeMilliseconds();
-                if (currentTime - lastInputTime > 20)
+                if (currentTime - lastInputTime > 10)  // Reduced from 20ms to 10ms
                 {
-                    directionQueue.Clear();
+                    directionQueue.Clear();  // Clear previous inputs for more responsive control
                     directionQueue.Enqueue(newDirection);
                     lastInputTime = currentTime;
                 }
             }
         }
 
-        private void GameTimer_Tick(object sender, EventArgs e)
+        private void ProcessDirectionQueue()
         {
-            // Don't process the game logic if we're waiting to start
-            if (isWaitingToStart)
-            {
-                return;
-            }
-            // Direct grid-based movement - no interpolation needed
-
             if (directionQueue.Count > 0)
             {
                 int newDirection = directionQueue.Dequeue();
@@ -352,9 +345,12 @@ namespace SnakeGame
                 }
                 // Clear any remaining inputs in queue
             }
-
+            
             lastDirection = direction;
+        }
 
+        private bool MoveSnake()
+        {
             Point newHead = new Point(snake[0].X, snake[0].Y);
 
             switch (direction)
@@ -365,47 +361,25 @@ namespace SnakeGame
                 case 3: newHead.Y -= CELL_SIZE; break; // Up
             }
 
+            // Check for collision with walls or snake body
             if (newHead.X < 0 || newHead.Y < 0 ||
                 newHead.X >= GAME_WIDTH || newHead.Y >= GAME_HEIGHT ||
                 snake.Any(s => s.X == newHead.X && s.Y == newHead.Y))
             {
-                gameOver = true;
-                gameTimer.Stop();
-
-                try
-                {
-                    playerName = GetPlayerName(score);
-
-                    if (!string.IsNullOrWhiteSpace(playerName))
-                    {
-                        try
-                        {
-                            highScoreManager.AddScore(playerName, score);
-                            UpdateHighScoreDisplay();
-                        }
-                        catch (Exception ex)
-                        {
-                            MessageBox.Show($"Error saving high score: {ex.Message}",
-                                "High Score Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"An error occurred: {ex.Message}",
-                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-                finally
-                {
-                    InitializeGame();
-                    directionQueue.Clear();
-                }
-                return;
+                return false;
             }
 
+            // Add new head
             snake.Insert(0, newHead);
+            
+            return true;
+        }
 
-            if (newHead.X == food.X && newHead.Y == food.Y)
+        private void HandleFoodCollision()
+        {
+            Point head = snake[0];
+            
+            if (head.X == food.X && head.Y == food.Y)
             {
                 score += 10;
                 UpdateScore();
@@ -420,9 +394,65 @@ namespace SnakeGame
             }
             else
             {
+                // Remove tail only if no food was eaten
                 snake.RemoveAt(snake.Count - 1);
             }
+        }
 
+        private void HandleGameOver()
+        {
+            gameOver = true;
+            gameTimer.Stop();
+            isWaitingToStart = true;  // Set this immediately
+            gamePanel.Invalidate();  // Refresh to show "Press SPACE to Start"
+
+            try
+            {
+                playerName = GetPlayerName(score);
+
+                if (!string.IsNullOrWhiteSpace(playerName))
+                {
+                    try
+                    {
+                        highScoreManager.AddScore(playerName, score);
+                        UpdateHighScoreDisplay();
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error saving high score: {ex.Message}",
+                            "High Score Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"An error occurred: {ex.Message}",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                InitializeGame();
+                directionQueue.Clear();
+            }
+        }
+
+        private void GameTimer_Tick(object sender, EventArgs e)
+        {
+            // Don't process the game logic if we're waiting to start
+            if (isWaitingToStart)
+            {
+                return;
+            }
+
+            ProcessDirectionQueue();
+            
+            if (!MoveSnake())
+            {
+                HandleGameOver();
+                return;
+            }
+
+            HandleFoodCollision();
             gamePanel.Invalidate();
         }
         private void UpdateHighScoreDisplay()
