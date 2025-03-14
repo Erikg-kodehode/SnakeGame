@@ -2,525 +2,666 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Linq;
 using System.Windows.Forms;
+using Microsoft.VisualBasic;
 
-#nullable enable
-
-namespace SnakeGame;
-
-public partial class Form1 : Form
+namespace SnakeGame
 {
-    private DoubleBufferedPanel gamePanel;
-    private System.Windows.Forms.Timer gameTimer;
-    private Label scoreLabel;
-    private Label titleLabel;
-    private Panel headerPanel;
-    private Panel instructionsPanel;
-    private Label instructionsLabel;
-    private Panel controlsPanel;
-
-    private List<Point> snake;
-    private Point food;
-    private int score;
-    private int direction;
-    private readonly Random random;
-    private readonly int squareSize = 20;
-    private bool gameOver;
-    private bool isPaused;
-    private int lastDirection;
-    private int queuedDirection;
-    private bool canChangeDirection;
-
-    public Form1()
+    public partial class Form1 : Form
     {
-        InitializeComponent();
+        private const int CELL_SIZE = 20;
+        private const int GRID_WIDTH = 20;
+        private const int GRID_HEIGHT = 20;
+        private const int GAME_WIDTH = GRID_WIDTH * CELL_SIZE;
+        private const int GAME_HEIGHT = GRID_HEIGHT * CELL_SIZE;
+        private const int MAX_NAME_LENGTH = 5;
 
-        snake = new List<Point>();
-        random = new Random();
-        direction = 0;
-        score = 0;
-        gameOver = false;
+        // Speed constants (milliseconds) - higher = slower
+        private const int INITIAL_SPEED = 125;
+        private const int MIN_SPEED = 30;      // Fastest speed the game can reach
+        private const int SPEED_INCREASE_STEP = 5; // How much to reduce interval when speeding up
+        private const int SPEED_INCREASE_SCORE = 30; // Score required for speed increase
 
-        this.Text = "Snake Game";
-        this.KeyPreview = true;
-        this.KeyDown += Form1_KeyDown;
-        this.BackColor = Color.FromArgb(30, 30, 40);
+        private DoubleBufferedPanel gamePanel;
+        private Label scoreLabel;
+        private Label highScoreLabel;
 
-        headerPanel = new Panel
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        public DoubleBufferedPanel GamePanel
         {
-            Size = new Size(600, 60),
-            Location = new Point(10, 10),
-            BackColor = Color.FromArgb(45, 45, 60),
-            BorderStyle = BorderStyle.None
-        };
-        this.Controls.Add(headerPanel);
-
-        titleLabel = new Label
-        {
-            Text = "SNAKE GAME",
-            Location = new Point(10, 10),
-            Size = new Size(300, 40),
-            Font = new Font("Segoe UI", 20, FontStyle.Bold),
-            ForeColor = Color.FromArgb(120, 220, 120),
-            TextAlign = ContentAlignment.MiddleLeft
-        };
-        headerPanel.Controls.Add(titleLabel);
-
-        scoreLabel = new Label
-        {
-            Text = "Score: 0",
-            Location = new Point(400, 10),
-            Size = new Size(200, 40),
-            Font = new Font("Segoe UI", 18, FontStyle.Bold),
-            ForeColor = Color.FromArgb(240, 240, 240),
-            TextAlign = ContentAlignment.MiddleRight
-        };
-        headerPanel.Controls.Add(scoreLabel);
-
-        gamePanel = new DoubleBufferedPanel
-        {
-            Size = new Size(600, 400),
-            Location = new Point(10, 80),
-            BackColor = Color.FromArgb(20, 20, 30),
-            BorderStyle = BorderStyle.None
-        };
-        gamePanel.Paint += GamePanel_Paint;
-        this.Controls.Add(gamePanel);
-
-        instructionsPanel = new Panel
-        {
-            Size = new Size(600, 60),
-            Location = new Point(10, 490),
-            BackColor = Color.FromArgb(45, 45, 60),
-            BorderStyle = BorderStyle.None
-        };
-        this.Controls.Add(instructionsPanel);
-
-        instructionsLabel = new Label
-        {
-            Text = "Use arrow keys to control the snake. Press SPACE to pause/unpause the game.",
-            Location = new Point(10, 10),
-            Size = new Size(580, 40),
-            Font = new Font("Segoe UI", 11),
-            ForeColor = Color.FromArgb(200, 200, 200),
-            TextAlign = ContentAlignment.MiddleCenter
-        };
-        instructionsPanel.Controls.Add(instructionsLabel);
-
-        controlsPanel = new Panel
-        {
-            Size = new Size(200, 60),
-            Location = new Point(620, 80),
-            BackColor = Color.FromArgb(45, 45, 60),
-            BorderStyle = BorderStyle.None
-        };
-        this.Controls.Add(controlsPanel);
-
-        gameTimer = new System.Windows.Forms.Timer
-        {
-            Interval = 100
-        };
-        gameTimer.Tick += GameTimer_Tick;
-
-        this.Size = new Size(840, 570);
-        InitializeGame();
-
-        gameTimer.Start();
-    }
-
-    private void InitializeGame()
-    {
-        snake.Clear();
-        direction = 0;
-        score = 0;
-        gameOver = false;
-        isPaused = false;
-        lastDirection = 0;
-        queuedDirection = -1;
-        canChangeDirection = true;
-        snake.Add(new Point(10 * squareSize, 10 * squareSize));
-        snake.Add(new Point(9 * squareSize, 10 * squareSize));
-        snake.Add(new Point(8 * squareSize, 10 * squareSize));
-
-        GenerateFood();
-
-        UpdateScore();
-    }
-
-    private void GameTimer_Tick(object? sender, EventArgs e)
-    {
-        if (gameOver || isPaused)
-            return;
-
-        MoveSnake();
-
-        CheckCollisions();
-
-        CheckFood();
-
-        gamePanel.Invalidate();
-    }
-
-    private void MoveSnake()
-    {
-        Point head = snake[0];
-        Point newHead = new Point(head.X, head.Y);
-
-        switch (direction)
-        {
-            case 0:
-                newHead.X += squareSize;
-                break;
-            case 1:
-                newHead.Y += squareSize;
-                break;
-            case 2:
-                newHead.X -= squareSize;
-                break;
-            case 3:
-                newHead.Y -= squareSize;
-                break;
-        }
-
-        canChangeDirection = true;
-        if (queuedDirection != -1 && IsValidDirectionChange(queuedDirection))
-        {
-            direction = queuedDirection;
-            lastDirection = direction;
-            queuedDirection = -1;
-        }
-
-        snake.Insert(0, newHead);
-
-        if (newHead != food)
-        {
-            snake.RemoveAt(snake.Count - 1);
-        }
-        else
-        {
-            GenerateFood();
-            score += 10;
-            UpdateScore();
-        }
-    }
-
-    private void CheckCollisions()
-    {
-        Point head = snake[0];
-
-        if (head.X < 0 || head.Y < 0 || head.X >= gamePanel.Width || head.Y >= gamePanel.Height)
-        {
-            GameOver();
-            return;
-        }
-
-        for (int i = 1; i < snake.Count; i++)
-        {
-            if (head == snake[i])
+            get => gamePanel;
+            internal set
             {
-                GameOver();
-                return;
+                gamePanel = value;
+                if (components == null) components = new System.ComponentModel.Container();
+                components.Add(value);
             }
         }
-    }
 
-    private void CheckFood()
-    {
-        if (snake[0] == food)
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        public Label ScoreLabel
         {
-        }
-    }
-
-    private void GenerateFood()
-    {
-        int maxX = gamePanel.Width / squareSize - 1;
-        int maxY = gamePanel.Height / squareSize - 1;
-
-        Point newFood;
-        bool validPosition;
-
-        do
-        {
-            validPosition = true;
-            newFood = new Point(
-                random.Next(0, maxX + 1) * squareSize,
-                random.Next(0, maxY + 1) * squareSize
-            );
-
-            foreach (Point segment in snake)
+            get => scoreLabel;
+            internal set
             {
-                if (segment == newFood)
+                scoreLabel = value;
+                if (components == null) components = new System.ComponentModel.Container();
+                components.Add(value);
+            }
+        }
+
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        public Label HighScoreLabel
+        {
+            get => highScoreLabel;
+            internal set
+            {
+                highScoreLabel = value;
+                if (components == null) components = new System.ComponentModel.Container();
+                components.Add(value);
+            }
+        }
+
+        private List<Point> snake;
+        private Point food;
+        private Random random;
+        private System.Windows.Forms.Timer gameTimer;
+        private int direction;
+        private int lastDirection;
+        private Queue<int> directionQueue = new Queue<int>();
+        private bool gameOver;
+        private bool isPaused;
+        private bool isWaitingToStart;
+        private long lastInputTime = 0; // Timestamp of last input to prevent too frequent changes
+        private HighScoreManager highScoreManager;
+        private string playerName = "Player";
+        private int score;
+
+        public Form1()
+        {
+            InitializeControls();
+            InitializeGameState();
+        }
+
+        private void InitializeControls()
+        {
+            this.Text = "Snake Game";
+            this.ClientSize = new Size(GAME_WIDTH + 200, GAME_HEIGHT + 50);
+            this.FormBorderStyle = FormBorderStyle.FixedSingle;
+            this.MaximizeBox = false;
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.BackColor = Color.FromArgb(30, 30, 45);
+
+            gamePanel = new DoubleBufferedPanel
+            {
+                Size = new Size(GAME_WIDTH, GAME_HEIGHT),
+                Location = new Point(10, 40),
+                BackColor = Color.FromArgb(20, 20, 30),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+            gamePanel.Paint += GamePanel_Paint;
+            this.Controls.Add(gamePanel);
+
+            scoreLabel = new Label
+            {
+                AutoSize = true,
+                Font = new Font("Segoe UI", 14F),
+                ForeColor = Color.White,
+                Location = new Point(10, 10),
+                Text = "Score: 0"
+            };
+            this.Controls.Add(scoreLabel);
+
+            highScoreLabel = new Label
+            {
+                AutoSize = true,
+                Font = new Font("Consolas", 12F),
+                ForeColor = Color.White,
+                Location = new Point(GAME_WIDTH + 20, 40),
+                Text = "Top 5 Scores:\r\n\r\n"
+            };
+            this.Controls.Add(highScoreLabel);
+        }
+
+        private void InitializeGameState()
+        {
+            snake = new List<Point>();
+            random = new Random();
+            highScoreManager = new HighScoreManager();
+
+            this.KeyDown += Form1_KeyDown;
+            this.KeyPreview = true;
+
+            gameTimer = new System.Windows.Forms.Timer { Interval = INITIAL_SPEED };
+            gameTimer.Tick += GameTimer_Tick;
+
+            InitializeGame();
+            UpdateHighScoreDisplay();
+        }
+
+
+        private void InitializeGame()
+        {
+            score = 0;
+            direction = 0;
+            lastDirection = direction;
+            gameOver = false;
+            isPaused = false;
+            isWaitingToStart = true;
+            directionQueue.Clear();
+
+            int startX = (GRID_WIDTH / 2) * CELL_SIZE;
+            int startY = (GRID_HEIGHT / 2) * CELL_SIZE;
+
+            snake.Clear();
+            snake.Add(new Point(startX, startY));
+            snake.Add(new Point(startX - CELL_SIZE, startY));
+            snake.Add(new Point(startX - (2 * CELL_SIZE), startY));
+
+
+            GenerateFood();
+            UpdateScore();
+            gameTimer.Interval = INITIAL_SPEED;
+            // Don't start the timer until space is pressed
+        }
+
+
+
+
+        private void GamePanel_Paint(object sender, PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.Clear(gamePanel.BackColor);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            using (Pen gridPen = new Pen(Color.FromArgb(60, 60, 80), 1.2f))
+            {
+                for (int x = 0; x <= GAME_WIDTH; x += CELL_SIZE)
                 {
-                    validPosition = false;
-                    break;
+                    g.DrawLine(gridPen, x, 0, x, GAME_HEIGHT);
+                }
+
+                for (int y = 0; y <= GAME_HEIGHT; y += CELL_SIZE)
+                {
+                    g.DrawLine(gridPen, 0, y, GAME_WIDTH, y);
                 }
             }
-        } while (!validPosition);
 
-        food = newFood;
-    }
-
-    private void GameOver()
-    {
-        gameOver = true;
-        gameTimer.Stop();
-        gamePanel.Invalidate();
-    }
-
-    private void UpdateScore()
-    {
-        scoreLabel.Text = $"Score: {score}";
-    }
-
-    private void DrawControlsPanel(Graphics g)
-    {
-        using (Font font = new Font("Segoe UI", 10))
-        {
-            g.FillRectangle(new SolidBrush(Color.FromArgb(60, 60, 80)), 0, 0, controlsPanel.Width, controlsPanel.Height);
-
-            DrawArrowButton(g, "▲", new Rectangle(75, 5, 30, 30), direction == 3);
-
-            DrawArrowButton(g, "◄", new Rectangle(40, 40, 30, 30), direction == 2);
-
-            DrawArrowButton(g, "►", new Rectangle(110, 40, 30, 30), direction == 0);
-
-            DrawArrowButton(g, "▼", new Rectangle(75, 40, 30, 30), direction == 1);
-
-            float spaceWidth = 120;
-            float spaceHeight = 25;
-            float spaceX = (controlsPanel.Width - spaceWidth) / 2;
-            float spaceY = 80;
-
-            Rectangle spaceRect = new Rectangle((int)spaceX, (int)spaceY, (int)spaceWidth, (int)spaceHeight);
-            using (LinearGradientBrush brush = new LinearGradientBrush(
-                spaceRect,
-                isPaused ? Color.FromArgb(230, 100, 100) : Color.FromArgb(80, 80, 100),
-                isPaused ? Color.FromArgb(180, 60, 60) : Color.FromArgb(60, 60, 80),
-                LinearGradientMode.Vertical))
+            using (Pen borderPen = new Pen(Color.FromArgb(100, 100, 150), 3))
             {
-                g.FillRoundedRectangle(brush, spaceRect, 5);
+                g.DrawRectangle(borderPen, 0, 0, GAME_WIDTH - 1, GAME_HEIGHT - 1);
             }
 
-            g.DrawRoundedRectangle(new Pen(Color.FromArgb(120, 120, 150), 1), spaceRect, 5);
-
-            string spaceText = isPaused ? "PAUSED" : "SPACE";
-            SizeF textSize = g.MeasureString(spaceText, font);
-            g.DrawString(spaceText, font, Brushes.White,
-                spaceX + (spaceWidth - textSize.Width) / 2,
-                spaceY + (spaceHeight - textSize.Height) / 2);
-        }
-    }
-
-    private void DrawArrowButton(Graphics g, string arrow, Rectangle rect, bool active)
-    {
-        Color startColor = active ? Color.FromArgb(100, 200, 100) : Color.FromArgb(80, 80, 100);
-        Color endColor = active ? Color.FromArgb(60, 160, 60) : Color.FromArgb(60, 60, 80);
-
-        using (LinearGradientBrush brush = new LinearGradientBrush(
-            rect, startColor, endColor, LinearGradientMode.Vertical))
-        {
-            g.FillRoundedRectangle(brush, rect, 5);
-        }
-
-        g.DrawRoundedRectangle(new Pen(Color.FromArgb(120, 120, 150), 1), rect, 5);
-
-        using (Font font = new Font("Segoe UI", 10))
-        {
-            SizeF textSize = g.MeasureString(arrow, font);
-            g.DrawString(arrow, font, Brushes.White,
-                rect.X + (rect.Width - textSize.Width) / 2,
-                rect.Y + (rect.Height - textSize.Height) / 2);
-        }
-    }
-
-    private void GamePanel_Paint(object? sender, PaintEventArgs e)
-    {
-        Graphics g = e.Graphics;
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-
-        using (LinearGradientBrush backgroundBrush = new LinearGradientBrush(
-            new Point(0, 0),
-            new Point(0, gamePanel.Height),
-            Color.FromArgb(30, 30, 45),
-            Color.FromArgb(15, 15, 25)))
-        {
-            g.FillRectangle(backgroundBrush, 0, 0, gamePanel.Width, gamePanel.Height);
-        }
-
-        using (Pen gridPen = new Pen(Color.FromArgb(40, 40, 60), 1))
-        {
-            for (int x = 0; x <= gamePanel.Width; x += squareSize)
+            for (int i = 0; i < snake.Count; i++)
             {
-                g.DrawLine(gridPen, x, 0, x, gamePanel.Height);
+                // Reduce gap for more connected appearance
+                int gap = 1;
+                int size = CELL_SIZE - gap;
+
+                if (i == 0) // Head - different color and slightly larger
+                {
+                    using (SolidBrush headBrush = new SolidBrush(Color.FromArgb(0, 230, 0)))
+                    {
+                        g.FillRectangle(headBrush,
+                            snake[i].X + gap / 2, snake[i].Y + gap / 2,
+                            size, size);
+                    }
+
+                    int eyeSize = 4;
+                    using (SolidBrush eyeBrush = new SolidBrush(Color.Black))
+                    {
+                        // Position eyes based on direction
+                        int offsetX = direction == 0 ? size - eyeSize * 2 : (direction == 2 ? eyeSize : size / 2 - eyeSize / 2);
+                        
+                        // Position for first eye
+                        int eye1X = snake[i].X + gap / 2 + offsetX;
+                        int eye1Y = snake[i].Y + gap / 2 + (direction == 1 ? size - eyeSize * 2 : (direction == 3 ? eyeSize : size / 2 - eyeSize / 2));
+                        
+                        // Position for second eye depends on direction
+                        int eye2X = eye1X;
+                        int eye2Y = eye1Y;
+                        
+                        if (direction == 0 || direction == 2) // horizontal
+                        {
+                            eye1Y = snake[i].Y + gap / 2 + size / 3;
+                            eye2Y = snake[i].Y + gap / 2 + size * 2 / 3;
+                        }
+                        else // vertical
+                        {
+                            eye1X = snake[i].X + gap / 2 + size / 3;
+                            eye2X = snake[i].X + gap / 2 + size * 2 / 3;
+                        }
+                        
+                        g.FillEllipse(eyeBrush, eye1X, eye1Y, eyeSize, eyeSize);
+                        g.FillEllipse(eyeBrush, eye2X, eye2Y, eyeSize, eyeSize);
+                    }
+                }
+                else // Body
+                {
+                    using (SolidBrush bodyBrush = new SolidBrush(Color.FromArgb(100, 240, 100)))
+                    {
+                        g.FillRectangle(bodyBrush,
+                            snake[i].X + gap / 2, snake[i].Y + gap / 2,
+                            size, size);
+                    }
+                }
             }
 
-            for (int y = 0; y <= gamePanel.Height; y += squareSize)
+            // Draw food
+            using (SolidBrush foodBrush = new SolidBrush(Color.FromArgb(255, 80, 0)))
             {
-                g.DrawLine(gridPen, 0, y, gamePanel.Width, y);
+                int foodSize = CELL_SIZE - 3;
+                g.FillEllipse(foodBrush,
+                    food.X + 2, food.Y + 2, foodSize, foodSize);
+
+                using (SolidBrush shineBrush = new SolidBrush(Color.FromArgb(200, 255, 255, 255)))
+                {
+                    g.FillEllipse(shineBrush,
+                        food.X + 5, food.Y + 5, foodSize / 3, foodSize / 3);
+                }
+            }
+
+            if (isWaitingToStart)
+            {
+                string message = "Press SPACE to Start";
+                using (Font font = new Font("Segoe UI", 16, FontStyle.Bold))
+                using (SolidBrush brush = new SolidBrush(Color.White))
+                using (StringFormat format = new StringFormat
+                {
+                    Alignment = StringAlignment.Center,
+                    LineAlignment = StringAlignment.Center
+                })
+                {
+                    g.DrawString(message, font, brush,
+                        new RectangleF(0, 0, GAME_WIDTH, GAME_HEIGHT), format);
+                }
+            }
+
+        }
+        private void Form1_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (gameOver)
+            {
+                if (e.KeyCode == Keys.Space)
+                {
+                    InitializeGame();
+                }
+                return;
+            }
+
+            if (e.KeyCode == Keys.Space)
+            {
+                if (isWaitingToStart)
+                {
+                    isWaitingToStart = false;
+                    gameTimer.Start();
+                    return;
+                }
+                isPaused = !isPaused;
+                if (isPaused)
+                    gameTimer.Stop();
+                else
+                    gameTimer.Start();
+                return;
+            }
+
+            int newDirection = -1;
+            switch (e.KeyCode)
+            {
+                case Keys.Left:
+                case Keys.A: newDirection = 2; break;
+                case Keys.Right:
+                case Keys.D: newDirection = 0; break;
+                case Keys.Up:
+                case Keys.W: newDirection = 3; break;
+                case Keys.Down:
+                case Keys.S: newDirection = 1; break;
+            }
+
+            // If valid direction and not opposite of last direction
+            if (newDirection != -1 && (newDirection + 2) % 4 != lastDirection)
+            {
+                // Get current time for input buffer check
+                // Only accept input if we're outside the buffer window (20ms)
+                long currentTime = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+                if (currentTime - lastInputTime > 20)
+                {
+                    directionQueue.Clear();
+                    directionQueue.Enqueue(newDirection);
+                    lastInputTime = currentTime;
+                }
             }
         }
 
-        for (int i = 0; i < snake.Count; i++)
+        private void GameTimer_Tick(object sender, EventArgs e)
         {
-            Point segment = snake[i];
-            Rectangle segmentRect = new Rectangle(segment.X + 1, segment.Y + 1, squareSize - 2, squareSize - 2);
-
-            Color startColor = (i == 0) ? Color.FromArgb(120, 255, 120) : Color.FromArgb(80, 200, 80);
-            Color endColor = (i == 0) ? Color.FromArgb(60, 220, 60) : Color.FromArgb(40, 160, 40);
-
-            using (LinearGradientBrush snakeBrush = new LinearGradientBrush(
-                segmentRect, startColor, endColor, LinearGradientMode.ForwardDiagonal))
+            // Don't process the game logic if we're waiting to start
+            if (isWaitingToStart)
             {
-                g.FillRoundedRectangle(snakeBrush, segmentRect, 5);
+                return;
+            }
+            // Direct grid-based movement - no interpolation needed
+
+            if (directionQueue.Count > 0)
+            {
+                int newDirection = directionQueue.Dequeue();
+                if ((newDirection + 2) % 4 != direction)
+                {
+                    direction = newDirection;
+                }
+                // Clear any remaining inputs in queue
             }
 
-            using (Pen outlinePen = new Pen(Color.FromArgb(30, 100, 30), 1))
+            lastDirection = direction;
+
+            Point newHead = new Point(snake[0].X, snake[0].Y);
+
+            switch (direction)
             {
-                g.DrawRoundedRectangle(outlinePen, segmentRect, 5);
-            }
-        }
-
-        Rectangle foodRect = new Rectangle(food.X + 2, food.Y + 2, squareSize - 4, squareSize - 4);
-        using (LinearGradientBrush foodBrush = new LinearGradientBrush(
-            foodRect,
-            Color.FromArgb(255, 70, 70),
-            Color.FromArgb(180, 30, 30),
-            LinearGradientMode.ForwardDiagonal))
-        {
-            g.FillEllipse(foodBrush, foodRect);
-        }
-
-        using (GraphicsPath path = new GraphicsPath())
-        {
-            path.AddEllipse(food.X + 4, food.Y + 4, (squareSize - 8) / 2, (squareSize - 8) / 2);
-            using (PathGradientBrush shineBrush = new PathGradientBrush(path))
-            {
-                shineBrush.CenterColor = Color.FromArgb(240, 255, 255, 255);
-                shineBrush.SurroundColors = new Color[] { Color.FromArgb(0, 255, 255, 255) };
-                g.FillPath(shineBrush, path);
-            }
-        }
-
-        using (Pen foodOutlinePen = new Pen(Color.FromArgb(120, 10, 10), 1))
-        {
-            g.DrawEllipse(foodOutlinePen, foodRect);
-        }
-
-        if (gameOver)
-        {
-            using (SolidBrush transparentBrush = new SolidBrush(Color.FromArgb(180, 0, 0, 0)))
-            {
-                g.FillRectangle(transparentBrush, 0, 0, gamePanel.Width, gamePanel.Height);
+                case 0: newHead.X += CELL_SIZE; break; // Right
+                case 1: newHead.Y += CELL_SIZE; break; // Down
+                case 2: newHead.X -= CELL_SIZE; break; // Left
+                case 3: newHead.Y -= CELL_SIZE; break; // Up
             }
 
-            string gameOverText = "GAME OVER";
-            Font titleFont = new Font("Segoe UI", 28, FontStyle.Bold);
-            SizeF titleSize = g.MeasureString(gameOverText, titleFont);
-
-            RectangleF titleRect = new RectangleF(
-                (gamePanel.Width - titleSize.Width) / 2,
-                (gamePanel.Height / 2) - titleSize.Height - 30,
-                titleSize.Width,
-                titleSize.Height
-            );
-
-            using (LinearGradientBrush titleBrush = new LinearGradientBrush(
-                titleRect,
-                Color.FromArgb(255, 60, 60),
-                Color.FromArgb(180, 20, 20),
-                LinearGradientMode.Vertical))
+            if (newHead.X < 0 || newHead.Y < 0 ||
+                newHead.X >= GAME_WIDTH || newHead.Y >= GAME_HEIGHT ||
+                snake.Any(s => s.X == newHead.X && s.Y == newHead.Y))
             {
-                g.DrawString(gameOverText, titleFont, titleBrush, titleRect.X, titleRect.Y);
+                gameOver = true;
+                gameTimer.Stop();
+
+                try
+                {
+                    playerName = GetPlayerName(score);
+
+                    if (!string.IsNullOrWhiteSpace(playerName))
+                    {
+                        try
+                        {
+                            highScoreManager.AddScore(playerName, score);
+                            UpdateHighScoreDisplay();
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show($"Error saving high score: {ex.Message}",
+                                "High Score Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"An error occurred: {ex.Message}",
+                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                finally
+                {
+                    InitializeGame();
+                    directionQueue.Clear();
+                }
+                return;
             }
 
-            string scoreText = $"Your Score: {score}";
-            Font scoreFont = new Font("Segoe UI", 20, FontStyle.Bold);
-            SizeF scoreSize = g.MeasureString(scoreText, scoreFont);
-            float scoreX = (gamePanel.Width - scoreSize.Width) / 2;
-            float scoreY = (gamePanel.Height / 2) - 5;
+            snake.Insert(0, newHead);
 
-            g.DrawString(scoreText, scoreFont, Brushes.White, scoreX, scoreY);
-
-            string restartText = "Press ENTER to restart";
-            Font restartFont = new Font("Segoe UI", 16);
-            SizeF restartSize = g.MeasureString(restartText, restartFont);
-            float restartX = (gamePanel.Width - restartSize.Width) / 2;
-            float restartY = scoreY + scoreSize.Height + 20;
-
-            int alpha = 128 + (int)(127 * Math.Sin(Environment.TickCount / 300.0));
-            using (SolidBrush pulseBrush = new SolidBrush(Color.FromArgb(alpha, 255, 255, 255)))
+            if (newHead.X == food.X && newHead.Y == food.Y)
             {
-                g.DrawString(restartText, restartFont, pulseBrush, restartX, restartY);
+                score += 10;
+                UpdateScore();
+                GenerateFood();
+
+                // Increase speed as score grows
+                if (score % SPEED_INCREASE_SCORE == 0 && gameTimer.Interval > MIN_SPEED)
+                {
+                    int newInterval = gameTimer.Interval - SPEED_INCREASE_STEP;
+                    gameTimer.Interval = Math.Max(newInterval, MIN_SPEED);
+                }
             }
-        }
-        else if (isPaused)
-        {
-            string pausedText = "PAUSED";
-            Font font = new Font("Arial", 24, FontStyle.Bold);
-            SizeF textSize = g.MeasureString(pausedText, font);
-            float x = (gamePanel.Width - textSize.Width) / 2;
-            float y = (gamePanel.Height - textSize.Height) / 2;
-
-            using (SolidBrush transparentBrush = new SolidBrush(Color.FromArgb(150, 0, 0, 0)))
+            else
             {
-                g.FillRectangle(transparentBrush, 0, 0, gamePanel.Width, gamePanel.Height);
+                snake.RemoveAt(snake.Count - 1);
             }
 
-            g.DrawString(pausedText, font, Brushes.White, x, y);
-        }
-    }
-    private bool IsValidDirectionChange(int newDirection)
-    {
-        return Math.Abs(newDirection - lastDirection) != 2;
-    }
-
-    private void Form1_KeyDown(object? sender, KeyEventArgs e)
-    {
-        if (gameOver && e.KeyCode == Keys.Enter)
-        {
-            InitializeGame();
-            gameTimer.Start();
-            return;
-        }
-
-        if (e.KeyCode == Keys.Space)
-        {
-            isPaused = !isPaused;
             gamePanel.Invalidate();
-            return;
+        }
+        private void UpdateHighScoreDisplay()
+        {
+            try
+            {
+                var scores = highScoreManager.GetTopScores();
+                highScoreLabel.Text = "Top 5 Scores:\r\n\r\n";
+                int rank = 1;
+                foreach (var score in scores)
+                {
+                    highScoreLabel.Text += $"{rank}. {score.Name,-5} {score.Score,5} {score.Date.ToString("MM-dd HH:mm")}\r\n";
+                    rank++;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Handle errors getting high scores
+                highScoreLabel.Text = "Top 5 Scores:\r\n\r\n(Error loading scores)";
+                Console.WriteLine($"Error loading high scores: {ex.Message}");
+            }
         }
 
-        if (isPaused || gameOver)
-            return;
-        int newDirection = -1;
-        switch (e.KeyCode)
+        private void GenerateFood()
         {
-            case Keys.Right:
-                newDirection = 0;
-                break;
-            case Keys.Down:
-                newDirection = 1;
-                break;
-            case Keys.Left:
-                newDirection = 2;
-                break;
-            case Keys.Up:
-                newDirection = 3;
-                break;
+            do
+            {
+                int x = random.Next(0, GRID_WIDTH) * CELL_SIZE;
+                int y = random.Next(0, GRID_HEIGHT) * CELL_SIZE;
+                food = new Point(x, y);
+            } while (snake.Any(s => s.X == food.X && s.Y == food.Y));
         }
 
-        if (newDirection != -1)
+        private void UpdateScore()
         {
-            if (canChangeDirection && IsValidDirectionChange(newDirection))
+            scoreLabel.Text = $"Score: {score}";
+        }
+
+        public void ShowHighScores()
+        {
+            UpdateHighScoreDisplay();
+            MessageBox.Show(highScoreLabel.Text, "High Scores",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        public void ClearHighScores()
+        {
+            if (MessageBox.Show("Are you sure you want to clear all high scores?",
+                "Clear High Scores", MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning) == DialogResult.Yes)
             {
-                direction = newDirection;
-                lastDirection = direction;
-                canChangeDirection = false;
+                highScoreManager.ClearScores();
+                UpdateHighScoreDisplay();
             }
-            else if (IsValidDirectionChange(newDirection))
+        }
+
+        /// <summary>
+        /// Shows a custom dialog to get the player's name for the high score
+        /// </summary>
+        private string GetPlayerName(int score)
+        {
+            // Create a small form for name input
+            Form nameForm = new Form
             {
-                queuedDirection = newDirection;
+                Text = "Game Over",
+                Size = new Size(320, 200),
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                StartPosition = FormStartPosition.CenterParent,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                ShowInTaskbar = false,
+                BackColor = Color.FromArgb(30, 30, 45),
+                Padding = new Padding(20)
+            };
+
+            // Create a TableLayoutPanel for better layout control
+            TableLayoutPanel panel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 4,
+                RowStyles = {
+                    new RowStyle(SizeType.Percent, 30),  // Game Over label
+                    new RowStyle(SizeType.Percent, 20),  // Name label
+                    new RowStyle(SizeType.Percent, 20),  // TextBox
+                    new RowStyle(SizeType.Percent, 30)   // Buttons
+                },
+                BackColor = Color.FromArgb(30, 30, 45)
+            };
+
+            // Game over label
+            Label gameOverLabel = new Label
+            {
+                Text = $"Game Over! Your score: {score}",
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 14F, FontStyle.Bold),
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                AutoSize = false
+            };
+
+            // Name label
+            Label nameLabel = new Label
+            {
+                Text = "Enter your name (max 5 chars):",
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 10F),
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.BottomCenter,
+                AutoSize = false
+            };
+
+            // Text box for name input
+            TextBox nameTextBox = new TextBox
+            {
+                MaxLength = MAX_NAME_LENGTH,
+                Text = playerName,
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+                TextAlign = HorizontalAlignment.Center,
+                Anchor = AnchorStyles.None,
+                Width = 150,
+                Height = 30
+            };
+
+            // Panel for text box to center it
+            Panel textBoxPanel = new Panel
+            {
+                Dock = DockStyle.Fill
+            };
+
+            // Center the text box inside the panel
+            nameTextBox.Location = new Point(
+                (textBoxPanel.Width - nameTextBox.Width) / 2,
+                (textBoxPanel.Height - nameTextBox.Height) / 2);
+
+            textBoxPanel.Controls.Add(nameTextBox);
+
+            // Make sure the text box is centered
+            textBoxPanel.Resize += (s, e) =>
+            {
+                nameTextBox.Location = new Point(
+                    (textBoxPanel.Width - nameTextBox.Width) / 2,
+                    (textBoxPanel.Height - nameTextBox.Height) / 2);
+            };
+
+            // Select all the text for easy overwrite
+            nameTextBox.SelectAll();
+
+            // Button panel for centering buttons
+            TableLayoutPanel buttonPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                ColumnStyles = {
+                    new ColumnStyle(SizeType.Percent, 50),
+                    new ColumnStyle(SizeType.Percent, 50)
+                }
+            };
+
+            // OK Button
+            Button okButton = new Button
+            {
+                Text = "OK",
+                DialogResult = DialogResult.OK,
+                Anchor = AnchorStyles.None,
+                Size = new Size(100, 35),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                BackColor = Color.FromArgb(0, 120, 215),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+
+            // Remove border from the button for a clean look
+            okButton.FlatAppearance.BorderSize = 0;
+
+            // Cancel Button
+            Button cancelButton = new Button
+            {
+                Text = "Cancel",
+                DialogResult = DialogResult.Cancel,
+                Anchor = AnchorStyles.None,
+                Size = new Size(100, 35),
+                Font = new Font("Segoe UI", 10F),
+                BackColor = Color.FromArgb(60, 60, 70),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+
+            // Remove border from the button for a clean look
+            cancelButton.FlatAppearance.BorderSize = 0;
+
+            // Add buttons to button panel in separate cells
+            buttonPanel.Controls.Add(cancelButton, 0, 0);  // Left side
+            buttonPanel.Controls.Add(okButton, 1, 0);      // Right side
+
+            // Add controls to table layout panel
+            panel.Controls.Add(gameOverLabel, 0, 0);
+            panel.Controls.Add(nameLabel, 0, 1);
+            panel.Controls.Add(textBoxPanel, 0, 2);
+            panel.Controls.Add(buttonPanel, 0, 3);
+
+            // Add panel to form
+            nameForm.Controls.Add(panel);
+
+            // Set default button and cancel button
+            nameForm.AcceptButton = okButton;
+            nameForm.CancelButton = cancelButton;
+
+            // Focus on the text box when the form is shown
+            nameForm.Shown += (s, e) => nameTextBox.Focus();
+
+            // Add keyboard event handling for Enter and Escape keys
+            nameTextBox.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Enter)
+                {
+                    nameForm.DialogResult = DialogResult.OK;
+                    nameForm.Close();
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                }
+                else if (e.KeyCode == Keys.Escape)
+                {
+                    nameForm.DialogResult = DialogResult.Cancel;
+                    nameForm.Close();
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                }
+            };
+
+            // Show the dialog and process result
+            if (nameForm.ShowDialog() == DialogResult.OK && !string.IsNullOrWhiteSpace(nameTextBox.Text))
+            {
+                string name = nameTextBox.Text.Trim();
+                return name.ToUpper();
             }
+
+            return null;
         }
     }
 }

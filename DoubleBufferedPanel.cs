@@ -6,8 +6,7 @@ namespace SnakeGame
     {
         public DoubleBufferedPanel()
         {
-            this.DoubleBuffered = true;
+            DoubleBuffered = true;
         }
     }
 }
-
